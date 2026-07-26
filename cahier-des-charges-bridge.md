@@ -3,6 +3,7 @@
 **Plateforme d'assistance à la communication pour personnes autistes et leur entourage**
 Hackathon : Build with Gemma — GDG On Campus ENSA Berrechid × AI Crafters × Gemma Team
 Équipe : 4 personnes | Modèle obligatoire : Gemma 4
+Réalisation : Application Web (React + FastAPI)
 
 ---
 
@@ -30,12 +31,11 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 
 ## 4. Utilisateurs cibles
 
-| Persona | Besoin |
-|---|---|
-| Personne autiste | S'exprimer rapidement, sans effort, y compris en crise |
-| Contact de confiance (famille, proche) | Comprendre et réagir correctement à une alerte |
-| Enseignant / employeur | Recevoir une communication claire et adaptée au contexte professionnel/scolaire |
-| Inconnu / passant | Savoir comment réagir face à une personne en crise, avec ou sans profil public scanné |
+| Persona | Rôle | Besoin |
+|---|---|---|
+| Personne autiste | `role: autiste` | S'exprimer rapidement, sans effort, y compris en crise |
+| Contact réseau (famille, proche, enseignant) | `role: reseau` | Recevoir des alertes et voir les cartes autorisées via invitation |
+| Inconnu / passant | Aucun compte requis | Consulter le profil QR public et comprendre comment réagir |
 
 ## 5. Fonctionnalités — priorisation MoSCoW pour le hackathon
 
@@ -43,16 +43,17 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 - **Création de carte** : texte, pictogramme, message vocal préenregistré
 - **Chatbot de création de carte assistée (phase calme)** : l'utilisateur écrit librement, Gemma détecte l'état et propose des suggestions de carte (état + solution), validation obligatoire avant sauvegarde
 - **Mode crise** : accès en un tap aux cartes existantes, aucune saisie de texte requise
-  > ⚠️ **À PRÉCISER PAR L'ÉQUIPE** : sur web, le "un tap" = bouton flottant permanent visible sur toutes les pages (position fixed). Pas de widget système possible sur navigateur — les cartes doivent être pré-chargées en mémoire (React state/context) pour un accès instantané sans appel réseau
+  > sur web, le "un tap" = bouton flottant permanent visible sur toutes les pages (position fixed). Les cartes doivent être pré-chargées en mémoire (CardsContext) pour un accès instantané sans appel réseau
 - **Fiche d'urgence partageable** : sélection de cartes à partager avec un tiers choisi
 
 ### Should have (bonus si le temps le permet)
-- **Alerter mon entourage** : un tap envoie la carte sélectionnée à un contact de confiance prédéfini, permissions par contact
+- **Système d'invitation réseau** : la personne autiste saisit l'email d'un contact → lien d'invitation UUID généré → le contact crée un compte `role: reseau` lié automatiquement → permissions activables par la personne autiste (`voir_cartes` / `recevoir_alertes` / `voir_profil_urgence`)
+- **Alerter mon entourage** : un tap envoie la carte sélectionnée aux contacts réseau ayant `recevoir_alertes = true`
 - **AI Tone Adapter** : adapte le ton de la carte partagée selon le destinataire (formel pour enseignant, chaleureux pour famille), toujours à partir des mots exacts de l'utilisateur
-- **AI Family/Educator Guidance** : conseil court ajouté pour le contact qui reçoit une carte
+- **AI Family/Educator Guidance** : conseil court ajouté pour le contact réseau qui reçoit une alerte
 
 ### Could have (si temps très large ou vision à présenter)
-- **Profil d'urgence public via QR/badge** : cartes publiques opt-in, consultables par un inconnu via Gemma reformulé, sans mise en commun de données entre utilisateurs
+- **Profil QR public** : page publique accessible sans compte via `GET /public/:public_id` — affiche les états et solutions que la personne a définis (cartes `is_public = true`), reformulés par Gemma en conseils clairs pour l'inconnu. L'inconnu lit, il ne tape rien.
 - **Chatbot éducatif général** : réponses au grand public basées sur des ressources publiques curées, indépendant des cartes privées
 
 ### Won't have (hors scope hackathon)
@@ -74,7 +75,8 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 | IA Cloud | Gemma 4 via Google AI Studio | Accès gratuit pour hackathon, function calling natif |
 | IA Local (mode crise) | Gemma E2B via `llama-cpp-python` | Léger (~2B params), tourne sur CPU, privacy-by-design |
 | Stockage médias | Base64 en DB | Zéro dépendance externe pour la démo |
-| Alertes | Lien partageable généré (UUID) | Pas de dépendance email/SMS, fonctionne offline |
+| Invitations réseau | Lien UUID généré (affiché dans l'app) | Pas de dépendance email/SMTP pour la démo |
+| Alertes | Notification in-app pour contacts réseau connectés | Simple, pas de dépendance externe |
 | Hébergement démo | Local (machine de démo) | Pas de risque réseau pendant la présentation |
 
 ### Répartition des usages de Gemma 4
@@ -84,8 +86,8 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 | Chatbot création de carte | Function calling → sortie structurée JSON (état, solution, ton) | Cloud API |
 | AI Tone Adapter | Reformulation contextuelle par destinataire | Cloud API |
 | AI Family/Educator Guidance | Génération de conseil court dérivé du message | Cloud API |
-| Mode crise (démo offline) | Modèle léger (E2B/E4B) tournant en local sur la machine de démo, sans dépendance réseau — argument privacy-by-design | Local sur la machine de démo (serveur FastAPI local), les cartes sont chargées en mémoire côté frontend au login |
-| QR public + reformulation pour inconnu | Reformulation des cartes autorisées en conseils clairs | Cloud API |
+| Mode crise (démo offline) | Modèle léger E2B tournant en local, sans dépendance réseau — privacy-by-design | Local (serveur FastAPI local), cartes chargées en mémoire au login |
+| Profil QR public | Reformulation des cartes `is_public` en conseils clairs pour l'inconnu | Cloud API |
 | Chatbot éducatif général | RAG sur ressources publiques curées (pas de données utilisateurs) | Cloud API |
 
 **Point d'attention technique** : utiliser le function calling natif de Gemma 4 pour forcer une sortie structurée (JSON) plutôt qu'un texte libre à parser — plus fiable pour le CRUD et plus visible comme usage "profond" de Gemma devant les juges.
@@ -96,56 +98,73 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 User
   id            UUID  (PK)
   username      string  (unique)
+  email         string  (unique)
   password      string  (hashé bcrypt)
-  public_id     UUID  (unique, utilisé pour l'URL du profil QR public)
+  role          string  # "autiste" | "reseau"
+  public_id     UUID  (unique — URL du profil QR, autiste seulement)
   created_at    datetime
 
 Card
   id            UUID  (PK)
-  user_id       UUID  (FK → User)
+  user_id       UUID  (FK → User autiste)
   text          string
   pictogram     string  (base64, nullable)
   audio         string  (base64, nullable)
   state         string  # ex: "surcharge sensorielle", "besoin de calme", "douleur"
   tone          string  # ex: "neutre", "formel", "chaleureux"
-  is_public     boolean  (default: false — opt-in explicite pour le profil QR)
+  is_public     boolean  (default: false — opt-in pour le profil QR)
+  is_shared     boolean  (default: false — visible par les contacts réseau autorisés)
   created_at    datetime
 
-Contact
-  id                  UUID  (PK)
-  user_id             UUID  (FK → User)
-  name                string
-  share_link          UUID  (unique, généré à la création — lien partageable)
-  can_see_cards       boolean  (default: false)
-  can_receive_alerts  boolean  (default: false)
-  created_at          datetime
+Invitation
+  id            UUID  (PK)
+  owner_id      UUID  (FK → User autiste)
+  email         string  (email du contact invité)
+  token         UUID  (unique — utilisé dans le lien d'invitation)
+  status        string  # "pending" | "accepted"
+  created_at    datetime
+  expires_at    datetime  # valide 7 jours
+
+NetworkLink  (créé automatiquement quand l'invitation est acceptée)
+  id                    UUID  (PK)
+  autiste_id            UUID  (FK → User autiste)
+  contact_id            UUID  (FK → User reseau)
+  voir_cartes           boolean  (default: false)
+  recevoir_alertes      boolean  (default: false)
+  voir_profil_urgence   boolean  (default: false)
+  linked_at             datetime
 ```
 
-### Endpoints backend indicatifs (FastAPI)
+### Endpoints backend (FastAPI)
 
 ```
-# Auth — ⚠️ MANQUANT dans la version initiale, à ajouter
-POST   /auth/register            # créer un compte utilisateur
-POST   /auth/login               # retourne un JWT
+# Auth
+POST   /auth/register                     # créer un compte (role: autiste)
+POST   /auth/login                        # retourne un JWT
 
 # Cards
-POST   /cards                    # créer une carte (après validation utilisateur)
-GET    /cards                    # lister les cartes de l'utilisateur
-PATCH  /cards/{id}               # modifier une carte
-DELETE /cards/{id}               # supprimer une carte
+POST   /cards                             # créer une carte
+GET    /cards                             # lister les cartes de l'utilisateur connecté
+PATCH  /cards/{id}                        # modifier une carte
+DELETE /cards/{id}                        # supprimer une carte
 
 # IA
-POST   /ai/formulate             # chatbot création de carte -> suggestions Gemma
-POST   /ai/tone-adapt            # adapter une carte à un destinataire
-POST   /ai/family-guidance       # générer un conseil pour un contact
+POST   /ai/formulate                      # chatbot création de carte → suggestions Gemma (JSON structuré)
+POST   /ai/tone-adapt                     # reformuler une carte selon le destinataire
+POST   /ai/family-guidance               # générer un conseil court pour un contact réseau
 
-# Contacts & alertes
-POST   /contacts                 # ajouter un contact de confiance + permissions
-POST   /alert/{contact_id}       # envoyer une carte à un contact en crise — ⚠️ canal à définir
+# Invitations & réseau
+POST   /invitations                       # créer une invitation (génère token + lien)
+GET    /invitations/accept/{token}        # accepter une invitation → crée compte reseau + NetworkLink
+GET    /network                           # lister les contacts réseau liés (côté autiste)
+PATCH  /network/{contact_id}/permissions  # modifier les permissions d'un contact réseau
 
-# Public
-GET    /emergency-profile/{public_id}   # accès public via QR (cartes autorisées uniquement)
-POST   /public-chat              # chatbot éducatif général (RAG ressources publiques)
+# Alertes
+POST   /alert/{contact_id}               # envoyer une carte à un contact réseau
+
+# Public (sans authentification)
+GET    /public/{public_id}               # profil QR public — états + solutions reformulés par Gemma
+POST   /public-chat                      # chatbot éducatif général
 ```
 
 ## 7. Livrables attendus (jour J)
@@ -161,52 +180,67 @@ Conformément aux exigences du hackathon :
 | Risque | Mitigation |
 |---|---|
 | Trop de fonctionnalités, rien de fini | Se concentrer sur les "Must have" en premier, ne pas coder les "Could have" avant que le cœur soit stable |
-| Démo offline mal comprise si sur-promise | Être transparent dans le pitch : ce qui tourne réellement en local vs l'architecture cible mobile |
-| Doute des juges sur la validation terrain (pas d'interviews réelles) | Assumer honnêtement le stade de prototype, insister sur le design éthique comme réponse à des principes documentés, pas comme validation utilisateur |
+| Démo offline mal comprise si sur-promise | Être transparent dans le pitch : ce qui tourne réellement en local vs l'architecture cible |
+| Doute des juges sur la validation terrain | Assumer honnêtement le stade de prototype, insister sur le design éthique |
 | Détection d'état imprécise par Gemma | Toujours présentée comme suggestion, jamais sauvegardée sans validation explicite |
-| Latence Gemma Cloud API en démo live | Préparer des réponses mockées en fallback — ne pas dépendre du réseau pour les parties critiques de la démo |
-| Gemma retourne du JSON malformé (function calling) | Toujours entourer les appels Gemma d'un try/catch + fallback sur réponse vide avec message d'erreur utilisateur |
-| CORS entre FastAPI et React | Configurer `CORSMiddleware` dans FastAPI dès le début — ne pas découvrir ce problème en démo |
-| Synchronisation offline des cartes | Sur web : utiliser `localStorage` ou `sessionStorage` pour cacher les cartes au login — pas d'AsyncStorage (React Native supprimé). Mode crise fonctionne tant que la page est ouverte |
-| Répartition des tâches non définie | ⚠️ **À FAIRE MAINTENANT** : assigner explicitement Backend / Mobile / IA / Design à chaque membre avant de commencer |
+| Latence Gemma Cloud API en démo live | Préparer des réponses mockées en fallback |
+| Gemma retourne du JSON malformé | Toujours entourer les appels Gemma d'un try/catch + fallback |
+| CORS entre FastAPI et React | Configurer `CORSMiddleware` dans FastAPI dès le début |
+| Cache mode crise | Cartes chargées dans `CardsContext` au login + `localStorage` en backup |
+| Lien invitation non reçu | Le lien est affiché dans l'app et partagé manuellement — pas de dépendance SMTP |
 
 ## 9. Décisions prises (finalisées)
 
 | Décision | Choix retenu |
 |---|---|
 | Authentification | Vrai système register/login avec JWT (python-jose + bcrypt) |
+| Types de comptes | `role: autiste` (créateur) et `role: reseau` (contact invité) |
+| Invitation réseau | Lien UUID affiché dans l'app, partagé manuellement — pas de SMTP pour la démo |
+| Permissions réseau | 3 permissions par contact : `voir_cartes`, `recevoir_alertes`, `voir_profil_urgence` |
+| Profil QR public | Affichage des cartes `is_public = true` reformulées par Gemma — pas de chatbot interactif |
 | Stockage médias | Base64 en DB, taille max 500KB par média |
-| Canal d'alerte | Lien partageable UUID — pas de dépendance externe |
-| Mode crise UX | Bouton rouge flottant `position: fixed` visible sur toutes les pages |
-| Cache mode crise | Cartes chargées dans `CardsContext` au login, stockées aussi en `localStorage` |
+| Mode crise UX | Bouton rouge flottant `position: fixed` visible sur toutes les pages autiste |
+| Cache mode crise | Cartes dans `CardsContext` au login + `localStorage` en backup |
 | Accès Gemma 4 | Google AI Studio — une seule clé API gérée dans le `.env` backend |
 | Modèle local | Gemma E2B (2B params) — tourne sur CPU, RAM requise ~4GB |
-| Hébergement démo | Tout en local sur la machine de démo (pas de risque réseau) |
+| Hébergement démo | Tout en local sur la machine de démo |
 | Répartition des rôles | À assigner par l'équipe (Backend / Frontend / IA / Design) |
 
 ## 10. Pages de l'application web
 
-| Route | Page | Accès | Description |
-|---|---|---|---|
-| `/login` | LoginPage | Public | Connexion utilisateur |
-| `/register` | RegisterPage | Public | Création de compte |
-| `/dashboard` | DashboardPage | Privé | Vue d'ensemble, accès rapide aux cartes |
-| `/cards` | CardsPage | Privé | Liste, création, édition, suppression des cartes |
-| `/chat` | ChatPage | Privé | Chatbot Gemma — création assistée de cartes |
-| `/contacts` | ContactsPage | Privé | Gestion des contacts de confiance + permissions |
-| `/emergency` | EmergencyProfilePage | Privé | Gestion du profil QR public (cartes opt-in) |
-| `/public/:public_id` | PublicProfilePage | Public | Profil d'urgence consultable via QR par un inconnu |
-| `/public-chat` | PublicChatPage | Public | Chatbot éducatif général (grand public) |
+### Pages publiques (sans compte)
+| Route | Page | Description |
+|---|---|---|
+| `/login` | LoginPage | Connexion (autiste ou réseau) |
+| `/register` | RegisterPage | Création de compte autiste uniquement |
+| `/invite/:token` | InvitePage | Accepter une invitation → créer compte réseau |
+| `/public/:public_id` | PublicProfilePage | Profil QR — états + solutions reformulés par Gemma pour l'inconnu |
+| `/public-chat` | PublicChatPage | Chatbot éducatif général |
 
-> Le `CrisisButton` (bouton rouge flottant) est monté dans `App.jsx` — il est présent sur toutes les pages privées et ouvre le `CrisisOverlay` avec les cartes pré-chargées depuis le `CardsContext`.
+### Pages compte autiste (`role: autiste`)
+| Route | Page | Description |
+|---|---|---|
+| `/dashboard` | DashboardPage | Vue d'ensemble + accès rapide mode crise |
+| `/cards` | CardsPage | Liste, création, édition, suppression des cartes |
+| `/chat` | ChatPage | Chatbot Gemma — création assistée de cartes |
+| `/network` | NetworkPage | Gérer les contacts réseau, invitations, permissions |
+| `/emergency` | EmergencyProfilePage | Choisir les cartes `is_public = true` pour le QR |
+
+### Pages compte réseau (`role: reseau`)
+| Route | Page | Description |
+|---|---|---|
+| `/network-dashboard` | NetworkDashboardPage | Liste des personnes dont il fait partie du réseau |
+| `/network/:autiste_id` | NetworkProfilePage | Cartes autorisées + alertes reçues d'une personne |
+
+> Le `CrisisButton` (bouton rouge flottant) est monté dans `App.jsx` — présent uniquement sur les pages du compte autiste, ouvre le `CrisisOverlay` avec les cartes pré-chargées depuis `CardsContext`.
 
 ## 11. Planning hackathon (ordre de développement)
 
 ### Phase 1 — Socle (à faire en premier, tout le monde bloqué dessus)
-1. Schéma DB + modèles SQLAlchemy (`user`, `card`, `contact`)
+1. Schéma DB + modèles SQLAlchemy (`User` avec `role`, `Card`, `Invitation`, `NetworkLink`)
 2. Endpoints auth (`/auth/register`, `/auth/login`) + JWT
 3. CRUD cartes (`/cards`)
-4. `axiosClient.js` + `AuthContext` + `ProtectedRoute` côté React
+4. `axiosClient.js` + `AuthContext` (gère le `role`) + `ProtectedRoute` côté React
 
 ### Phase 2 — Must have
 5. Interface cartes (CardList, CardForm, CardItem)
@@ -215,12 +249,14 @@ Conformément aux exigences du hackathon :
 8. ChatBot React (ChatPage, SuggestionCard, validation avant sauvegarde)
 
 ### Phase 3 — Should have (si Phase 2 stable)
-9. Contacts + lien partageable (`/contacts`, `/alert/{contact_id}`)
-10. AI Tone Adapter (`/ai/tone-adapt`) + AI Family Guidance (`/ai/family-guidance`)
+9. Système invitation (`/invitations`, `/invitations/accept/{token}`, `InvitePage`)
+10. NetworkPage (permissions par contact : `voir_cartes`, `recevoir_alertes`, `voir_profil_urgence`)
+11. NetworkDashboardPage + NetworkProfilePage (côté compte réseau)
+12. Alertes (`/alert/{contact_id}`) + AI Tone Adapter + AI Family Guidance
 
 ### Phase 4 — Could have (si temps restant)
-11. Profil QR public (`/emergency-profile/{public_id}`, `PublicProfilePage`)
-12. Chatbot éducatif général (`/public-chat`, `PublicChatPage`)
+13. Profil QR public (`/public/:public_id`) — affichage cartes `is_public` reformulées par Gemma
+14. Chatbot éducatif général (`/public-chat`)
 
 ---
 
