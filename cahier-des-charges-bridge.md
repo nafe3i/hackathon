@@ -44,6 +44,9 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 - **Chatbot de création de carte assistée (phase calme)** : l'utilisateur écrit librement, Gemma détecte l'état et propose des suggestions de carte (état + solution), validation obligatoire avant sauvegarde
 - **Mode crise** : accès en un tap aux cartes existantes, aucune saisie de texte requise
   > sur web, le "un tap" = bouton flottant permanent visible sur toutes les pages (position fixed). Les cartes doivent être pré-chargées en mémoire (CardsContext) pour un accès instantané sans appel réseau
+- **Voix d'urgence automatique** : quand la personne sélectionne une carte en mode crise, l'appareil de la personne autiste lit le message à voix haute via Web Speech API (natif navigateur, gratuit, zéro installation) pour informer les personnes physiquement présentes autour d'elle. Flux en deux temps :
+  1. **Immédiat** : un message générique est joué instantanément (*"Cette personne a besoin d'aide, veuillez rester calme et lui donner de l'espace."*)
+  2. **Personnalisé** : Gemma reformule la carte sélectionnée en message d'urgence clair pour un inconnu → lu automatiquement dès réception de la réponse API
 - **Fiche d'urgence partageable** : sélection de cartes à partager avec un tiers choisi
 
 ### Should have (bonus si le temps le permet)
@@ -53,7 +56,10 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 - **AI Family/Educator Guidance** : conseil court ajouté pour le contact réseau qui reçoit une alerte
 
 ### Could have (si temps très large ou vision à présenter)
-- **Profil QR public** : page publique accessible sans compte via `GET /public/:public_id` — affiche les états et solutions que la personne a définis (cartes `is_public = true`), reformulés par Gemma en conseils clairs pour l'inconnu. L'inconnu lit, il ne tape rien.
+- **Profil QR public + alerte réseau automatique** : page publique accessible sans compte via `GET /public/:public_id` — affiche les états et solutions (cartes `is_public = true`) reformulés par Gemma pour l'inconnu. Dès que le QR est scanné, une notification est envoyée **automatiquement** à tout le réseau de la personne autiste via deux canaux :
+  - **Ntfy.sh** (push notification gratuite, app Ntfy sur téléphone du contact)
+  - **Email Gmail SMTP** (fallback gratuit pour les contacts sans Ntfy)
+  - Message envoyé : *"🚨 [Prénom] a été trouvé(e) en situation de crise — son QR vient d'être scanné par quelqu'un."*
 - **Chatbot éducatif général** : réponses au grand public basées sur des ressources publiques curées, indépendant des cartes privées
 
 ### Won't have (hors scope hackathon)
@@ -73,10 +79,11 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 | Authentification | JWT via `python-jose` + `bcrypt` | Stateless, simple à intégrer côté React |
 | Appels HTTP frontend | Axios | Intercepteur JWT centralisé dans `axiosClient.js` |
 | IA Cloud | Gemma 4 via Google AI Studio | Accès gratuit pour hackathon, function calling natif |
-| IA Local (mode crise) | Gemma E2B via `llama-cpp-python` | Léger (~2B params), tourne sur CPU, privacy-by-design |
+| Text-to-Speech | Web Speech API (natif navigateur) | Gratuit, zéro dépendance, zéro installation |
+| Notifications push (QR scan) | Ntfy.sh | Gratuit, zéro clé API, simple requête HTTP POST |
+| Email fallback (QR scan) | Gmail SMTP via `smtplib` Python | Gratuit, universel, aucune lib externe |
 | Stockage médias | Base64 en DB | Zéro dépendance externe pour la démo |
 | Invitations réseau | Lien UUID généré (affiché dans l'app) | Pas de dépendance email/SMTP pour la démo |
-| Alertes | Notification in-app pour contacts réseau connectés | Simple, pas de dépendance externe |
 | Hébergement démo | Local (machine de démo) | Pas de risque réseau pendant la présentation |
 
 ### Répartition des usages de Gemma 4
@@ -84,10 +91,11 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 | Fonctionnalité | Usage Gemma 4 | Mode |
 |---|---|---|
 | Chatbot création de carte | Function calling → sortie structurée JSON (état, solution, ton) | Cloud API |
+| Voix d'urgence | Reformulation de la carte en message clair pour un inconnu → lu par Web Speech API | Cloud API |
 | AI Tone Adapter | Reformulation contextuelle par destinataire | Cloud API |
 | AI Family/Educator Guidance | Génération de conseil court dérivé du message | Cloud API |
-| Mode crise (démo offline) | Modèle léger E2B tournant en local, sans dépendance réseau — privacy-by-design | Local (serveur FastAPI local), cartes chargées en mémoire au login |
 | Profil QR public | Reformulation des cartes `is_public` en conseils clairs pour l'inconnu | Cloud API |
+| Alerte QR scan | Dès scan du QR → notification Ntfy + email Gmail envoyés au réseau automatiquement | Backend (pas Gemma) |
 | Chatbot éducatif général | RAG sur ressources publiques curées (pas de données utilisateurs) | Cloud API |
 
 **Point d'attention technique** : utiliser le function calling natif de Gemma 4 pour forcer une sortie structurée (JSON) plutôt qu'un texte libre à parser — plus fiable pour le CRUD et plus visible comme usage "profond" de Gemma devant les juges.
@@ -132,7 +140,15 @@ NetworkLink  (créé automatiquement quand l'invitation est acceptée)
   voir_cartes           boolean  (default: false)
   recevoir_alertes      boolean  (default: false)
   voir_profil_urgence   boolean  (default: false)
+  ntfy_topic            string  (nullable — topic Ntfy du contact pour push notification)
+  email                 string  (nullable — email du contact pour fallback Gmail)
   linked_at             datetime
+
+QRScanLog  (enregistre chaque scan du QR public)
+  id            UUID  (PK)
+  autiste_id    UUID  (FK → User autiste)
+  scanned_at    datetime
+  notified      boolean  (default: false — passe à true après envoi notifications)
 ```
 
 ### Endpoints backend (FastAPI)
@@ -150,6 +166,7 @@ DELETE /cards/{id}                        # supprimer une carte
 
 # IA
 POST   /ai/formulate                      # chatbot création de carte → suggestions Gemma (JSON structuré)
+POST   /ai/voice-message                  # reformuler une carte en message vocal d'urgence pour un inconnu
 POST   /ai/tone-adapt                     # reformuler une carte selon le destinataire
 POST   /ai/family-guidance               # générer un conseil court pour un contact réseau
 
@@ -163,7 +180,7 @@ PATCH  /network/{contact_id}/permissions  # modifier les permissions d'un contac
 POST   /alert/{contact_id}               # envoyer une carte à un contact réseau
 
 # Public (sans authentification)
-GET    /public/{public_id}               # profil QR public — états + solutions reformulés par Gemma
+GET    /public/{public_id}               # profil QR public — états + solutions reformulés par Gemma + déclenche alerte réseau automatique (Ntfy + email)
 POST   /public-chat                      # chatbot éducatif général
 ```
 
@@ -183,11 +200,13 @@ Conformément aux exigences du hackathon :
 | Démo offline mal comprise si sur-promise | Être transparent dans le pitch : ce qui tourne réellement en local vs l'architecture cible |
 | Doute des juges sur la validation terrain | Assumer honnêtement le stade de prototype, insister sur le design éthique |
 | Détection d'état imprécise par Gemma | Toujours présentée comme suggestion, jamais sauvegardée sans validation explicite |
-| Latence Gemma Cloud API en démo live | Préparer des réponses mockées en fallback |
+| Latence Gemma Cloud API en démo live | Message vocal générique joué immédiatement en fallback — Gemma répond en arrière-plan |
 | Gemma retourne du JSON malformé | Toujours entourer les appels Gemma d'un try/catch + fallback |
 | CORS entre FastAPI et React | Configurer `CORSMiddleware` dans FastAPI dès le début |
 | Cache mode crise | Cartes chargées dans `CardsContext` au login + `localStorage` en backup |
 | Lien invitation non reçu | Le lien est affiché dans l'app et partagé manuellement — pas de dépendance SMTP |
+| Ntfy non installé chez le contact | Email Gmail SMTP envoyé en fallback automatique — zéro action requise |
+| Fausse alerte QR (scan par curiosité) | Acceptable pour la démo — en production, ajouter un délai de confirmation ou un compteur de scans |
 
 ## 9. Décisions prises (finalisées)
 
@@ -198,11 +217,12 @@ Conformément aux exigences du hackathon :
 | Invitation réseau | Lien UUID affiché dans l'app, partagé manuellement — pas de SMTP pour la démo |
 | Permissions réseau | 3 permissions par contact : `voir_cartes`, `recevoir_alertes`, `voir_profil_urgence` |
 | Profil QR public | Affichage des cartes `is_public = true` reformulées par Gemma — pas de chatbot interactif |
+| Alerte QR scan | Dès scan → Ntfy push (gratuit) + Gmail SMTP (fallback gratuit) envoyés automatiquement au réseau |
 | Stockage médias | Base64 en DB, taille max 500KB par média |
 | Mode crise UX | Bouton rouge flottant `position: fixed` visible sur toutes les pages autiste |
 | Cache mode crise | Cartes dans `CardsContext` au login + `localStorage` en backup |
 | Accès Gemma 4 | Google AI Studio — une seule clé API gérée dans le `.env` backend |
-| Modèle local | Gemma E2B (2B params) — tourne sur CPU, RAM requise ~4GB |
+| Modèle IA | Gemma 4 Cloud API uniquement (Google AI Studio) — gratuit, pas de modèle local |
 | Hébergement démo | Tout en local sur la machine de démo |
 | Répartition des rôles | À assigner par l'équipe (Backend / Frontend / IA / Design) |
 
@@ -245,8 +265,9 @@ Conformément aux exigences du hackathon :
 ### Phase 2 — Must have
 5. Interface cartes (CardList, CardForm, CardItem)
 6. `CardsContext` + cache `localStorage` + `CrisisButton` + `CrisisOverlay`
-7. Intégration Gemma 4 (`gemma_client.py`) + endpoint `/ai/formulate`
-8. ChatBot React (ChatPage, SuggestionCard, validation avant sauvegarde)
+7. Voix d'urgence : Web Speech API dans `CrisisOverlay` + endpoint `/ai/voice-message` (reformulation Gemma)
+8. Intégration Gemma 4 (`gemma_client.py`) + endpoint `/ai/formulate`
+9. ChatBot React (ChatPage, SuggestionCard, validation avant sauvegarde)
 
 ### Phase 3 — Should have (si Phase 2 stable)
 9. Système invitation (`/invitations`, `/invitations/accept/{token}`, `InvitePage`)
@@ -256,7 +277,8 @@ Conformément aux exigences du hackathon :
 
 ### Phase 4 — Could have (si temps restant)
 13. Profil QR public (`/public/:public_id`) — affichage cartes `is_public` reformulées par Gemma
-14. Chatbot éducatif général (`/public-chat`)
+14. Alerte réseau automatique au scan QR — `ntfy_service.py` + `email_service.py` dans `services/` + `QRScanLog`
+15. Chatbot éducatif général (`/public-chat`)
 
 ---
 
