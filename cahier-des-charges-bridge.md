@@ -45,12 +45,12 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 - **Mode crise** : accès en un tap aux cartes existantes, aucune saisie de texte requise
   > sur web, le "un tap" = bouton flottant permanent visible sur toutes les pages (position fixed). Les cartes doivent être pré-chargées en mémoire (CardsContext) pour un accès instantané sans appel réseau
 - **Voix d'urgence automatique** : quand la personne sélectionne une carte en mode crise, l'appareil de la personne autiste lit le message à voix haute via Web Speech API (natif navigateur, gratuit, zéro installation) pour informer les personnes physiquement présentes autour d'elle. Flux en deux temps :
-  1. **Immédiat** : un message générique est joué instantanément (*"Cette personne a besoin d'aide, veuillez rester calme et lui donner de l'espace."*)
+  1. **Immédiat** : un message générique est joué instantanément, incluant les numéros de téléphone des contacts réseau ayant `recevoir_alertes = true` (*"Cette personne a besoin d'aide, veuillez rester calme et lui donner de l'espace. En cas d'urgence, appelez : [Prénom] au [numéro], [Prénom] au [numéro]..."*)
   2. **Personnalisé** : Gemma reformule la carte sélectionnée en message d'urgence clair pour un inconnu → lu automatiquement dès réception de la réponse API
 - **Fiche d'urgence partageable** : sélection de cartes à partager avec un tiers choisi
 
 ### Should have (bonus si le temps le permet)
-- **Système d'invitation réseau** : la personne autiste saisit l'email d'un contact → lien d'invitation UUID généré → le contact crée un compte `role: reseau` lié automatiquement → permissions activables par la personne autiste (`voir_cartes` / `recevoir_alertes` / `voir_profil_urgence`)
+- **Système d'invitation réseau** : la personne autiste saisit l'email d'un contact → lien d'invitation UUID généré → le contact crée un compte `role: reseau` via `InvitePage` en saisissant son nom, mot de passe et **numéro de téléphone** → lié automatiquement → permissions activables par la personne autiste (`voir_cartes` / `recevoir_alertes` / `voir_profil_urgence`)
 - **Alerter mon entourage** : un tap envoie la carte sélectionnée aux contacts réseau ayant `recevoir_alertes = true`
 - **AI Tone Adapter** : adapte le ton de la carte partagée selon le destinataire (formel pour enseignant, chaleureux pour famille), toujours à partir des mots exacts de l'utilisateur
 - **AI Family/Educator Guidance** : conseil court ajouté pour le contact réseau qui reçoit une alerte
@@ -109,6 +109,7 @@ User
   email         string  (unique)
   password      string  (hashé bcrypt)
   role          string  # "autiste" | "reseau"
+  phone         string  (nullable — saisi par le contact réseau à la création de son compte)
   public_id     UUID  (unique — URL du profil QR, autiste seulement)
   created_at    datetime
 
@@ -225,6 +226,7 @@ Conformément aux exigences du hackathon :
 | Modèle IA | Gemma 4 Cloud API uniquement (Google AI Studio) — gratuit, pas de modèle local |
 | Hébergement démo | Tout en local sur la machine de démo |
 | Répartition des rôles | À assigner par l'équipe (Backend / Frontend / IA / Design) |
+| Numéros contacts dans voix d'urgence | Option B — le contact réseau saisit lui-même son `phone` via `InvitePage` à la création de son compte |
 
 ## 10. Pages de l'application web
 
@@ -233,7 +235,7 @@ Conformément aux exigences du hackathon :
 |---|---|---|
 | `/login` | LoginPage | Connexion (autiste ou réseau) |
 | `/register` | RegisterPage | Création de compte autiste uniquement |
-| `/invite/:token` | InvitePage | Accepter une invitation → créer compte réseau |
+| `/invite/:token` | InvitePage | Accepter une invitation → créer compte réseau (nom + mot de passe + numéro de téléphone) |
 | `/public/:public_id` | PublicProfilePage | Profil QR — états + solutions reformulés par Gemma pour l'inconnu |
 | `/public-chat` | PublicChatPage | Chatbot éducatif général |
 
@@ -257,7 +259,7 @@ Conformément aux exigences du hackathon :
 ## 11. Planning hackathon (ordre de développement)
 
 ### Phase 1 — Socle (à faire en premier, tout le monde bloqué dessus)
-1. Schéma DB + modèles SQLAlchemy (`User` avec `role`, `Card`, `Invitation`, `NetworkLink`)
+1. Schéma DB + modèles SQLAlchemy (`User` avec `role` + `phone`, `Card`, `Invitation`, `NetworkLink`)
 2. Endpoints auth (`/auth/register`, `/auth/login`) + JWT
 3. CRUD cartes (`/cards`)
 4. `axiosClient.js` + `AuthContext` (gère le `role`) + `ProtectedRoute` côté React
@@ -265,7 +267,7 @@ Conformément aux exigences du hackathon :
 ### Phase 2 — Must have
 5. Interface cartes (CardList, CardForm, CardItem)
 6. `CardsContext` + cache `localStorage` + `CrisisButton` + `CrisisOverlay`
-7. Voix d'urgence : Web Speech API dans `CrisisOverlay` + endpoint `/ai/voice-message` (reformulation Gemma)
+7. Voix d'urgence : Web Speech API dans `CrisisOverlay` + endpoint `/ai/voice-message` (reformulation Gemma) — numéros de téléphone des contacts réseau (`recevoir_alertes = true`) inclus dans le message immédiat
 8. Intégration Gemma 4 (`gemma_client.py`) + endpoint `/ai/formulate`
 9. ChatBot React (ChatPage, SuggestionCard, validation avant sauvegarde)
 
