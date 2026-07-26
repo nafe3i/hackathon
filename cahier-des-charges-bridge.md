@@ -61,14 +61,21 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 
 ## 6. Architecture technique proposée
 
-### Stack
-- **Backend** : FastAPI (Python) — API REST, orchestration des appels Gemma, CRUD cartes/utilisateurs/contacts
-- **Frontend** : React (app web) — interface principale utilisateur (création cartes, mode crise, alertes, chatbot éducatif public)
-- **Base de données** : à définir selon le temps disponible (PostgreSQL en priorité si le temps permet une vraie persistance relationnelle ; sinon SQLite pour la démo)
-- **IA** : Gemma 4, avec deux modes d'usage selon la fonctionnalité (voir tableau ci-dessous)
-- **Authentification** : JWT (JSON Web Token) via `python-jose` — à implémenter dès le début, même avec un token statique pour la démo. Routes protégées : toutes sauf `GET /emergency-profile/{public_id}` et `POST /public-chat`
-- **Stockage médias** : base64 encodé en DB pour la démo (pictogrammes + audio) — ⚠️ À REMPLACER par S3/Cloudinary en production (taille limite à définir par l'équipe)
-- **Alertes** : envoi par email (ex: SendGrid) ou lien partageable — ⚠️ À CONFIRMER par l'équipe : pas de push notification sur web sans service worker, email est le canal le plus simple
+### Stack finale (décisions prises)
+
+| Couche | Technologie | Justification |
+|---|---|---|
+| Backend | FastAPI (Python) | Rapide à prototyper, async natif, swagger auto-généré |
+| Frontend | React + Vite | SPA légère, hot reload rapide, écosystème riche |
+| Base de données | SQLite (démo) | Zéro configuration, fichier unique, suffisant pour le hackathon |
+| ORM | SQLAlchemy | Standard Python, compatible SQLite et PostgreSQL |
+| Authentification | JWT via `python-jose` + `bcrypt` | Stateless, simple à intégrer côté React |
+| Appels HTTP frontend | Axios | Intercepteur JWT centralisé dans `axiosClient.js` |
+| IA Cloud | Gemma 4 via Google AI Studio | Accès gratuit pour hackathon, function calling natif |
+| IA Local (mode crise) | Gemma E2B via `llama-cpp-python` | Léger (~2B params), tourne sur CPU, privacy-by-design |
+| Stockage médias | Base64 en DB | Zéro dépendance externe pour la démo |
+| Alertes | Lien partageable généré (UUID) | Pas de dépendance email/SMS, fonctionne offline |
+| Hébergement démo | Local (machine de démo) | Pas de risque réseau pendant la présentation |
 
 ### Répartition des usages de Gemma 4
 
@@ -83,35 +90,35 @@ Ces règles encadrent **toutes** les fonctionnalités et doivent guider chaque d
 
 **Point d'attention technique** : utiliser le function calling natif de Gemma 4 pour forcer une sortie structurée (JSON) plutôt qu'un texte libre à parser — plus fiable pour le CRUD et plus visible comme usage "profond" de Gemma devant les juges.
 
-### Schéma de données (à valider en équipe avant de coder)
-
-> ⚠️ **À COMPLÉTER PAR L'ÉQUIPE** — Ce schéma est indicatif, les types et champs optionnels sont à confirmer ensemble.
+### Schéma de données (finalisé)
 
 ```
 User
-  id          UUID
-  username    string
-  password    string (hashé bcrypt)
-  public_id   UUID  # utilisé pour le QR d'urgence
+  id            UUID  (PK)
+  username      string  (unique)
+  password      string  (hashé bcrypt)
+  public_id     UUID  (unique, utilisé pour l'URL du profil QR public)
+  created_at    datetime
 
 Card
-  id          UUID
-  user_id     UUID (FK → User)
-  text        string
-  pictogram   string (base64 ou URL)
-  audio       string (base64 ou URL)  # ⚠️ format à décider
-  state       string  # ex: "surcharge", "besoin de calme"
-  tone        string  # ex: "formel", "chaleureux"
-  is_public   boolean  # opt-in pour le profil QR
+  id            UUID  (PK)
+  user_id       UUID  (FK → User)
+  text          string
+  pictogram     string  (base64, nullable)
+  audio         string  (base64, nullable)
+  state         string  # ex: "surcharge sensorielle", "besoin de calme", "douleur"
+  tone          string  # ex: "neutre", "formel", "chaleureux"
+  is_public     boolean  (default: false — opt-in explicite pour le profil QR)
+  created_at    datetime
 
 Contact
-  id          UUID
-  user_id     UUID (FK → User)
-  name        string
-  channel     string  # "push" | "sms" — ⚠️ À DÉCIDER
-  token       string  # FCM token ou numéro
-  can_see_cards  boolean
-  can_receive_alerts  boolean
+  id                  UUID  (PK)
+  user_id             UUID  (FK → User)
+  name                string
+  share_link          UUID  (unique, généré à la création — lien partageable)
+  can_see_cards       boolean  (default: false)
+  can_receive_alerts  boolean  (default: false)
+  created_at          datetime
 ```
 
 ### Endpoints backend indicatifs (FastAPI)
@@ -163,20 +170,58 @@ Conformément aux exigences du hackathon :
 | Synchronisation offline des cartes | Sur web : utiliser `localStorage` ou `sessionStorage` pour cacher les cartes au login — pas d'AsyncStorage (React Native supprimé). Mode crise fonctionne tant que la page est ouverte |
 | Répartition des tâches non définie | ⚠️ **À FAIRE MAINTENANT** : assigner explicitement Backend / Mobile / IA / Design à chaque membre avant de commencer |
 
-## 9. Décisions en attente (à résoudre en équipe avant de coder)
+## 9. Décisions prises (finalisées)
 
-> Ces points ont été identifiés lors de l'audit du document. Chaque item doit avoir une réponse avant que le développement commence.
+| Décision | Choix retenu |
+|---|---|
+| Authentification | Vrai système register/login avec JWT (python-jose + bcrypt) |
+| Stockage médias | Base64 en DB, taille max 500KB par média |
+| Canal d'alerte | Lien partageable UUID — pas de dépendance externe |
+| Mode crise UX | Bouton rouge flottant `position: fixed` visible sur toutes les pages |
+| Cache mode crise | Cartes chargées dans `CardsContext` au login, stockées aussi en `localStorage` |
+| Accès Gemma 4 | Google AI Studio — une seule clé API gérée dans le `.env` backend |
+| Modèle local | Gemma E2B (2B params) — tourne sur CPU, RAM requise ~4GB |
+| Hébergement démo | Tout en local sur la machine de démo (pas de risque réseau) |
+| Répartition des rôles | À assigner par l'équipe (Backend / Frontend / IA / Design) |
 
-- [ ] **Authentification** : JWT statique pour la démo ou vrai système register/login ?
-- [ ] **Stockage médias** : base64 en DB ou fichiers sur disque/S3 ? Taille max par carte ?
-- [ ] **Canal d'alerte** : email (SendGrid/Resend) ou lien partageable généré ? Pas de push natif sur web
-- [ ] **Mode crise UX** : bouton flottant fixe sur toutes les pages ou page dédiée accessible via raccourci clavier ?
-- [ ] **Offline/cache** : cartes en `localStorage` au login pour le mode crise, ou dépendance réseau acceptée ?
-- [ ] **Accès Gemma 4** : Google AI Studio ou Vertex AI ? Qui gère la clé API ?
-- [ ] **Modèle local** : E2B ou E4B ? RAM disponible sur la machine de démo ?
-- [ ] **Hébergement démo** : Vercel (frontend) + Render/Railway (backend) ou tout en local le jour J ?
-- [ ] **Répartition des rôles** : qui fait Backend / Frontend / IA / Design ?
+## 10. Pages de l'application web
+
+| Route | Page | Accès | Description |
+|---|---|---|---|
+| `/login` | LoginPage | Public | Connexion utilisateur |
+| `/register` | RegisterPage | Public | Création de compte |
+| `/dashboard` | DashboardPage | Privé | Vue d'ensemble, accès rapide aux cartes |
+| `/cards` | CardsPage | Privé | Liste, création, édition, suppression des cartes |
+| `/chat` | ChatPage | Privé | Chatbot Gemma — création assistée de cartes |
+| `/contacts` | ContactsPage | Privé | Gestion des contacts de confiance + permissions |
+| `/emergency` | EmergencyProfilePage | Privé | Gestion du profil QR public (cartes opt-in) |
+| `/public/:public_id` | PublicProfilePage | Public | Profil d'urgence consultable via QR par un inconnu |
+| `/public-chat` | PublicChatPage | Public | Chatbot éducatif général (grand public) |
+
+> Le `CrisisButton` (bouton rouge flottant) est monté dans `App.jsx` — il est présent sur toutes les pages privées et ouvre le `CrisisOverlay` avec les cartes pré-chargées depuis le `CardsContext`.
+
+## 11. Planning hackathon (ordre de développement)
+
+### Phase 1 — Socle (à faire en premier, tout le monde bloqué dessus)
+1. Schéma DB + modèles SQLAlchemy (`user`, `card`, `contact`)
+2. Endpoints auth (`/auth/register`, `/auth/login`) + JWT
+3. CRUD cartes (`/cards`)
+4. `axiosClient.js` + `AuthContext` + `ProtectedRoute` côté React
+
+### Phase 2 — Must have
+5. Interface cartes (CardList, CardForm, CardItem)
+6. `CardsContext` + cache `localStorage` + `CrisisButton` + `CrisisOverlay`
+7. Intégration Gemma 4 (`gemma_client.py`) + endpoint `/ai/formulate`
+8. ChatBot React (ChatPage, SuggestionCard, validation avant sauvegarde)
+
+### Phase 3 — Should have (si Phase 2 stable)
+9. Contacts + lien partageable (`/contacts`, `/alert/{contact_id}`)
+10. AI Tone Adapter (`/ai/tone-adapt`) + AI Family Guidance (`/ai/family-guidance`)
+
+### Phase 4 — Could have (si temps restant)
+11. Profil QR public (`/emergency-profile/{public_id}`, `PublicProfilePage`)
+12. Chatbot éducatif général (`/public-chat`, `PublicChatPage`)
 
 ---
 
-*Document de travail — à ajuster selon l'avancement réel de l'équipe le jour du hackathon.*
+*Document de travail — version finale avant développement.*
