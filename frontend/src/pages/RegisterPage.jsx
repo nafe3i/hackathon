@@ -3,10 +3,10 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function RegisterPage() {
-  const { register, isAuthenticated } = useAuth(); const navigate = useNavigate();
+  const { register, isAuthenticated, authReady } = useAuth(); const navigate = useNavigate();
   const [form, setForm] = useState({ username:"", email:"", password:"" }); const [confirm, setConfirm] = useState("");
   const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
-  if (isAuthenticated) return <Navigate to="/cards" replace />;
+  if (authReady && isAuthenticated) return <Navigate to="/cards" replace />;
   const submit = async (event) => { event.preventDefault(); setError("");
     if (form.password !== confirm) return setError("Les mots de passe ne correspondent pas.");
     setLoading(true); try { await register(form); navigate("/cards", {replace:true}); }

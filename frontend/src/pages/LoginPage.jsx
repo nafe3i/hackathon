@@ -3,15 +3,15 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { user, login, isAuthenticated, authReady } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  if (isAuthenticated) return <Navigate to="/cards" replace />;
+  if (authReady && isAuthenticated) return <Navigate to={user.role === "reseau" ? "/network-dashboard" : "/cards"} replace />;
   const submit = async (event) => {
     event.preventDefault(); setError(""); setLoading(true);
-    try { await login(form); navigate("/cards", { replace: true }); }
+    try { const connectedUser = await login(form); navigate(connectedUser.role === "reseau" ? "/network-dashboard" : "/cards", { replace: true }); }
     catch (e) { setError(e.response?.data?.detail || "Connexion impossible. Vérifiez que le serveur est lancé."); }
     finally { setLoading(false); }
   };
